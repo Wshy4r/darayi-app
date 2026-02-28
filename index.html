@@ -16,9 +16,25 @@
   <header class="border-b border-zinc-800 px-6 py-4">
     <div class="flex items-center justify-between">
       <h1 class="text-xl font-bold tracking-tight text-zinc-100">Darayi</h1>
-      <nav class="flex gap-1" id="tab-nav"></nav>
+      <div class="flex items-center gap-3">
+        <nav class="flex gap-1" id="tab-nav"></nav>
+        <button onclick="toggleSyncModal()" id="sync-btn" class="relative rounded-lg p-2 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors" title="Backup & Sync">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span id="sync-dot" class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-violet-500 hidden"></span>
+        </button>
+      </div>
     </div>
   </header>
+
+  <!-- Sync Modal Overlay -->
+  <div id="sync-modal" class="fixed inset-0 z-50 hidden">
+    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" onclick="toggleSyncModal()"></div>
+    <div class="fixed top-16 right-4 w-full max-w-md z-50">
+      <div id="sync-modal-content" class="rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl"></div>
+    </div>
+  </div>
 
   <main class="mx-auto max-w-4xl px-4 py-8" id="app"></main>
 
@@ -48,7 +64,7 @@
     let manualBtcPrice = localStorage.getItem('darayi_manual_btc_price');
     let syncPasscode = localStorage.getItem('darayi_sync_passcode') || '';
     let syncCode = localStorage.getItem('darayi_sync_code') || '';
-    let syncOpen = false;
+    let syncModalOpen = false;
     let syncStatus = '';
     const currencies = {
       USD: { symbol: '$', prefix: true, decimals: 2 },
@@ -138,6 +154,13 @@
 
       if (currentTab === 'vault') renderVault();
       else renderSalary();
+
+      // Update sync modal content if open
+      if (syncModalOpen) renderSync();
+
+      // Update sync dot indicator
+      const dot = document.getElementById('sync-dot');
+      if (dot) dot.classList.toggle('hidden', !!syncPasscode);
     }
 
     function renderVault() {
@@ -321,7 +344,6 @@
             `}
         </div>
 
-        ${renderSync()}
       `;
     }
 
@@ -406,58 +428,74 @@
           </div>
         </div>
 
-        ${renderSync()}
       `;
     }
 
+    function toggleSyncModal() {
+      syncModalOpen = !syncModalOpen;
+      const modal = document.getElementById('sync-modal');
+      if (syncModalOpen) {
+        modal.classList.remove('hidden');
+        renderSync();
+      } else {
+        modal.classList.add('hidden');
+      }
+    }
+
     function renderSync() {
-      return `
-        <!-- Backup & Sync -->
-        <div class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-          <button onclick="syncOpen = !syncOpen; render();" class="flex w-full items-center justify-between text-left">
-            <h3 class="text-sm font-medium uppercase tracking-wider text-zinc-500">Backup & Sync</h3>
-            <span class="text-zinc-600 text-xs">${syncOpen ? '▲' : '▼'}</span>
+      const el = document.getElementById('sync-modal-content');
+      if (!el) return;
+
+      // Update the sync dot indicator in the header
+      const dot = document.getElementById('sync-dot');
+      if (dot) dot.classList.toggle('hidden', !!syncPasscode);
+
+      el.innerHTML = `
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-sm font-semibold uppercase tracking-wider text-zinc-400">Backup & Sync</h3>
+          <button onclick="toggleSyncModal()" class="text-zinc-500 hover:text-zinc-300">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
-          ${syncOpen ? `
-            <div class="mt-4 space-y-4">
-              ${!syncPasscode ? `
-                <div>
-                  <p class="mb-2 text-xs text-zinc-500">Set a sync passcode to enable encrypted backups</p>
-                  <div class="flex gap-2">
-                    <input type="password" placeholder="Choose a passcode" id="set-passcode"
-                      class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500 focus:outline-none" />
-                    <button onclick="setSyncPasscode()"
-                      class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Save</button>
-                  </div>
-                </div>
-              ` : `
-                <div>
-                  <div class="mb-2 flex items-center justify-between">
-                    <p class="text-xs text-zinc-500">Your sync code — auto-updated on every change</p>
-                    <button onclick="clearSyncPasscode()" class="text-xs text-zinc-600 hover:text-red-400">Change passcode</button>
-                  </div>
-                  <textarea id="sync-output" readonly rows="3"
-                    class="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none">${esc(syncCode)}</textarea>
-                  <button onclick="navigator.clipboard.writeText(document.getElementById('sync-output').value)"
-                    class="mt-1 text-xs text-violet-400 hover:text-violet-300">Copy to clipboard</button>
-                </div>
-              `}
-              <hr class="border-zinc-800" />
-              <div>
-                <p class="mb-2 text-xs text-zinc-500">Import — paste a sync code from another device</p>
-                <textarea id="import-data" rows="3"
-                  class="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
-                  placeholder="Paste sync code here..."></textarea>
-                <div class="mt-2 flex gap-2">
-                  <input type="password" placeholder="Passcode" id="import-passcode"
-                    class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500 focus:outline-none" />
-                  <button onclick="importBackup()"
-                    class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Import</button>
-                </div>
+        </div>
+        <div class="space-y-4">
+          ${!syncPasscode ? `
+            <div>
+              <p class="mb-2 text-xs text-zinc-500">Set a sync passcode to enable encrypted backups</p>
+              <div class="flex gap-2">
+                <input type="password" placeholder="Choose a passcode" id="set-passcode"
+                  class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500 focus:outline-none" />
+                <button onclick="setSyncPasscode()"
+                  class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Save</button>
               </div>
-              ${syncStatus ? `<p class="text-xs ${syncStatus.startsWith('Import failed') ? 'text-red-400' : 'text-emerald-400'}">${esc(syncStatus)}</p>` : ''}
             </div>
-          ` : ''}
+          ` : `
+            <div>
+              <div class="mb-2 flex items-center justify-between">
+                <p class="text-xs text-zinc-500">Sync code — auto-updated on every change</p>
+                <button onclick="clearSyncPasscode()" class="text-xs text-zinc-600 hover:text-red-400">Change passcode</button>
+              </div>
+              <textarea id="sync-output" readonly rows="3"
+                class="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none">${esc(syncCode)}</textarea>
+              <button onclick="navigator.clipboard.writeText(document.getElementById('sync-output').value)"
+                class="mt-1 text-xs text-violet-400 hover:text-violet-300">Copy to clipboard</button>
+            </div>
+          `}
+          <hr class="border-zinc-800" />
+          <div>
+            <p class="mb-2 text-xs text-zinc-500">Import — paste a sync code from another device</p>
+            <textarea id="import-data" rows="3"
+              class="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+              placeholder="Paste sync code here..."></textarea>
+            <div class="mt-2 flex gap-2">
+              <input type="password" placeholder="Passcode" id="import-passcode"
+                class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500 focus:outline-none" />
+              <button onclick="importBackup()"
+                class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Import</button>
+            </div>
+          </div>
+          ${syncStatus ? `<p class="text-xs ${syncStatus.startsWith('Import failed') ? 'text-red-400' : 'text-emerald-400'}">${esc(syncStatus)}</p>` : ''}
         </div>
       `;
     }
