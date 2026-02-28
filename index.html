@@ -43,8 +43,22 @@
     let btcPriceUpdatedAt = null;
     let manualBtcPrice = localStorage.getItem('darayi_manual_btc_price');
 
-    // --- Gold Price ---
+    // --- Gold Price (try multiple CORS-friendly APIs) ---
     async function fetchGoldPrice() {
+      // Try API 1: Frankfurter (ECB rates, CORS-friendly)
+      try {
+        const res = await fetch('https://api.frankfurter.dev/v1/latest?from=XAU&to=USD');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const pricePerOunce = data.rates?.USD;
+        if (!pricePerOunce) throw new Error();
+        goldPrice = pricePerOunce / 31.1035;
+        goldPriceUpdatedAt = new Date().toLocaleTimeString();
+        render();
+        return;
+      } catch {}
+
+      // Try API 2: goldprice.org
       try {
         const res = await fetch('https://data-asg.goldprice.org/dbXRates/USD');
         if (!res.ok) throw new Error();
@@ -54,13 +68,15 @@
         goldPrice = pricePerOunce / 31.1035;
         goldPriceUpdatedAt = new Date().toLocaleTimeString();
         render();
-      } catch {
-        if (manualGoldPrice) {
-          goldPrice = parseFloat(manualGoldPrice);
-          goldPriceUpdatedAt = 'manual';
-        }
-        render();
+        return;
+      } catch {}
+
+      // Fallback: manual price
+      if (manualGoldPrice) {
+        goldPrice = parseFloat(manualGoldPrice);
+        goldPriceUpdatedAt = 'manual';
       }
+      render();
     }
 
     // --- Bitcoin Price ---
