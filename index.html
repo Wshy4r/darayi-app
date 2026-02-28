@@ -14,9 +14,10 @@
 </head>
 <body class="min-h-screen antialiased">
   <header class="border-b border-zinc-800 px-6 py-4">
-    <h1 class="text-xl font-bold tracking-tight text-zinc-100">
-      Darayi <span class="ml-2 text-sm font-normal text-zinc-500">Vault</span>
-    </h1>
+    <div class="flex items-center justify-between">
+      <h1 class="text-xl font-bold tracking-tight text-zinc-100">Darayi</h1>
+      <nav class="flex gap-1" id="tab-nav"></nav>
+    </div>
   </header>
 
   <main class="mx-auto max-w-4xl px-4 py-8" id="app"></main>
@@ -32,10 +33,13 @@
     }
     function genId() { return Date.now() + Math.random().toString(36).slice(2, 8); }
 
+    let currentTab = localStorage.getItem('darayi_tab') || 'vault';
     let cash = load('cash');
     let gold = load('gold');
     let bitcoin = load('bitcoin');
     let loans = load('loans');
+    let salary = load('salary');
+    let expenses = load('expenses');
     let goldPrice = null;
     let goldPriceUpdatedAt = null;
     let manualGoldPrice = localStorage.getItem('darayi_manual_gold_price');
@@ -100,9 +104,25 @@
     function totalBtc() { return bitcoin.reduce((s, e) => s + e.btc, 0); }
     function totalBtcValue() { return btcPrice ? totalBtc() * btcPrice : 0; }
     function totalLoans() { return loans.filter(l => !l.is_returned).reduce((s, e) => s + e.amount, 0); }
+    function totalIncome() { return salary.reduce((s, e) => s + e.amount, 0); }
+    function totalExpenses() { return expenses.reduce((s, e) => s + e.amount, 0); }
+    function switchTab(tab) { currentTab = tab; localStorage.setItem('darayi_tab', tab); render(); }
 
     // --- Render ---
     function render() {
+      // Tab navigation
+      document.getElementById('tab-nav').innerHTML = `
+        <button onclick="switchTab('vault')"
+          class="rounded-lg px-4 py-1.5 text-sm font-medium ${currentTab === 'vault' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}">Vault</button>
+        <button onclick="switchTab('salary')"
+          class="rounded-lg px-4 py-1.5 text-sm font-medium ${currentTab === 'salary' ? 'bg-rose-600 text-white' : 'text-zinc-400 hover:text-zinc-200'}">Salary</button>
+      `;
+
+      if (currentTab === 'vault') renderVault();
+      else renderSalary();
+    }
+
+    function renderVault() {
       const tc = totalCash();
       const tgv = totalGoldValue();
       const tbv = totalBtcValue();
@@ -283,6 +303,91 @@
             `}
         </div>
 
+        ${renderSync()}
+      `;
+    }
+
+    function renderSalary() {
+      const ti = totalIncome();
+      const te = totalExpenses();
+      const remaining = ti - te;
+
+      document.getElementById('app').innerHTML = `
+        <!-- Salary Summary -->
+        <div class="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
+          <h2 class="mb-4 text-sm font-medium uppercase tracking-wider text-zinc-500">Salary Overview</h2>
+          <p class="mb-6 text-4xl font-bold ${remaining >= 0 ? 'text-rose-400' : 'text-red-500'}">$${fmt(remaining)}</p>
+          <div class="grid grid-cols-3 gap-4">
+            <div class="rounded-lg bg-zinc-800/50 p-3">
+              <p class="text-xs text-zinc-500">Income</p>
+              <p class="text-lg font-semibold text-emerald-400">$${fmt(ti)}</p>
+            </div>
+            <div class="rounded-lg bg-zinc-800/50 p-3">
+              <p class="text-xs text-zinc-500">Spent</p>
+              <p class="text-lg font-semibold text-rose-400">$${fmt(te)}</p>
+            </div>
+            <div class="rounded-lg bg-zinc-800/50 p-3">
+              <p class="text-xs text-zinc-500">Remaining</p>
+              <p class="text-lg font-semibold ${remaining >= 0 ? 'text-zinc-200' : 'text-red-500'}">$${fmt(remaining)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid gap-6 md:grid-cols-2">
+          <!-- Income Section -->
+          <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+            <h3 class="mb-4 text-sm font-medium uppercase tracking-wider text-zinc-500">Income</h3>
+            <form onsubmit="addSalary(event)" class="mb-4 flex gap-2">
+              <input type="number" step="0.01" placeholder="Amount" id="salary-amount"
+                class="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none" />
+              <input type="text" placeholder="Note (optional)" id="salary-note"
+                class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none" />
+              <button type="submit"
+                class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">Add</button>
+            </form>
+            ${salary.length === 0 ? '<p class="text-sm text-zinc-600">No income entries yet.</p>' :
+              `<ul class="space-y-2">${salary.map(e => `
+                <li class="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
+                  <div>
+                    <span class="font-medium text-emerald-400">$${fmt(e.amount)}</span>
+                    ${e.note ? `<span class="ml-2 text-sm text-zinc-500">${esc(e.note)}</span>` : ''}
+                  </div>
+                  <button onclick="removeSalary('${e.id}')" class="text-xs text-zinc-600 hover:text-red-400">Remove</button>
+                </li>`).join('')}</ul>`}
+          </div>
+
+          <!-- Expenses Section -->
+          <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+            <h3 class="mb-4 text-sm font-medium uppercase tracking-wider text-zinc-500">Expenses</h3>
+            <form onsubmit="addExpense(event)" class="mb-4 flex gap-2">
+              <input type="number" step="0.01" placeholder="Amount" id="expense-amount"
+                class="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-rose-500 focus:outline-none" />
+              <input type="text" placeholder="Category" id="expense-category"
+                class="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-rose-500 focus:outline-none" />
+              <input type="text" placeholder="Note" id="expense-note"
+                class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-rose-500 focus:outline-none" />
+              <button type="submit"
+                class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Add</button>
+            </form>
+            ${expenses.length === 0 ? '<p class="text-sm text-zinc-600">No expenses yet.</p>' :
+              `<ul class="space-y-2">${expenses.map(e => `
+                <li class="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
+                  <div>
+                    <span class="font-medium text-rose-400">$${fmt(e.amount)}</span>
+                    ${e.category ? `<span class="ml-2 rounded bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-300">${esc(e.category)}</span>` : ''}
+                    ${e.note ? `<span class="ml-2 text-sm text-zinc-500">${esc(e.note)}</span>` : ''}
+                  </div>
+                  <button onclick="removeExpense('${e.id}')" class="text-xs text-zinc-600 hover:text-red-400">Remove</button>
+                </li>`).join('')}</ul>`}
+          </div>
+        </div>
+
+        ${renderSync()}
+      `;
+    }
+
+    function renderSync() {
+      return `
         <!-- Backup & Sync -->
         <div class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
           <button onclick="syncOpen = !syncOpen; render();" class="flex w-full items-center justify-between text-left">
@@ -469,11 +574,45 @@
       render(); autoSync();
     }
 
+    // --- Salary Actions ---
+    function addSalary(e) {
+      e.preventDefault();
+      const amount = parseFloat(document.getElementById('salary-amount').value);
+      const note = document.getElementById('salary-note').value.trim();
+      if (!amount || isNaN(amount)) return;
+      salary.unshift({ id: genId(), amount, note: note || null, created_at: new Date().toISOString() });
+      save('salary', salary);
+      render(); autoSync();
+    }
+
+    function removeSalary(id) {
+      salary = salary.filter(e => e.id !== id);
+      save('salary', salary);
+      render(); autoSync();
+    }
+
+    function addExpense(e) {
+      e.preventDefault();
+      const amount = parseFloat(document.getElementById('expense-amount').value);
+      const category = document.getElementById('expense-category').value.trim();
+      const note = document.getElementById('expense-note').value.trim();
+      if (!amount || isNaN(amount)) return;
+      expenses.unshift({ id: genId(), amount, category: category || null, note: note || null, created_at: new Date().toISOString() });
+      save('expenses', expenses);
+      render(); autoSync();
+    }
+
+    function removeExpense(id) {
+      expenses = expenses.filter(e => e.id !== id);
+      save('expenses', expenses);
+      render(); autoSync();
+    }
+
     // --- Sync ---
     async function autoSync() {
       if (!syncPasscode) return;
       try {
-        const data = JSON.stringify({ cash, gold, bitcoin, loans });
+        const data = JSON.stringify({ cash, gold, bitcoin, loans, salary, expenses });
         syncCode = await encryptData(data, syncPasscode);
         localStorage.setItem('darayi_sync_code', syncCode);
       } catch {}
@@ -506,6 +645,8 @@
         if (data.gold) { gold = data.gold; save('gold', gold); }
         if (data.bitcoin) { bitcoin = data.bitcoin; save('bitcoin', bitcoin); }
         if (data.loans) { loans = data.loans; save('loans', loans); }
+        if (data.salary) { salary = data.salary; save('salary', salary); }
+        if (data.expenses) { expenses = data.expenses; save('expenses', expenses); }
         syncStatus = 'Data imported successfully!';
         await autoSync();
         render();
