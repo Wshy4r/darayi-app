@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Darayi - Personal Vault</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' }
+  </script>
+  <style>
+    body { background-color: #0a0a0f; color: #e4e4e7; }
+  </style>
+</head>
+<body class="min-h-screen antialiased">
+  <header class="border-b border-zinc-800 px-6 py-4">
+    <h1 class="text-xl font-bold tracking-tight text-zinc-100">
+      Darayi <span class="ml-2 text-sm font-normal text-zinc-500">Vault</span>
+    </h1>
+  </header>
+
+  <main class="mx-auto max-w-4xl px-4 py-8" id="app"></main>
+
+  <script>
+    // --- Data Layer (localStorage) ---
+    function load(key) {
+      try { return JSON.parse(localStorage.getItem('darayi_' + key)) || []; }
+      catch { return []; }
+    }
+    function save(key, data) {
+      localStorage.setItem('darayi_' + key, JSON.stringify(data));
+    }
+    function genId() { return Date.now() + Math.random().toString(36).slice(2, 8); }
+
+    let cash = load('cash');
+    let gold = load('gold');
+    let bitcoin = load('bitcoin');
+    let loans = load('loans');
+    let goldPrice = null;
+    let goldPriceUpdatedAt = null;
+    let manualGoldPrice = localStorage.getItem('darayi_manual_gold_price');
+    let btcPrice = null;
+    let btcPriceUpdatedAt = null;
+    let manualBtcPrice = localStorage.getItem('darayi_manual_btc_price');
+
+    // --- Gold Price ---
+    async function fetchGoldPrice() {
+      try {
+        const res = await fetch('https://data-asg.goldprice.org/dbXRates/USD');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const pricePerOunce = data.items?.[0]?.xauPrice;
+        if (!pricePerOunce) throw new Error();
+        goldPrice = pricePerOunce / 31.1035;
+        goldPriceUpdatedAt = new Date().toLocaleTimeString();
+        render();
+      } catch {
+        if (manualGoldPrice) {
+          goldPrice = parseFloat(manualGoldPrice);
+          goldPriceUpdatedAt = 'manual';
+        }
+        render();
+      }
+    }
+
+    // --- Bitcoin Price ---
+    async function fetchBtcPrice() {
+      try {
+        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const price = data.bitcoin?.usd;
+        if (!price) throw new Error();
+        btcPrice = price;
+        btcPriceUpdatedAt = new Date().toLocaleTimeString();
+        render();
+      } catch {
+        if (manualBtcPrice) {
+          btcPrice = parseFloat(manualBtcPrice);
+          btcPriceUpdatedAt = 'manual';
+        }
+        render();
+      }
+    }
+
+    // --- Helpers ---
+    function fmt(n) {
+      return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function totalCash() { return cash.reduce((s, e) => s + e.amount, 0); }
+    function totalGrams() { return gold.reduce((s, e) => s + e.grams, 0); }
+    function totalGoldValue() { return goldPrice ? totalGrams() * goldPrice : 0; }
+    function totalBtc() { return bitcoin.reduce((s, e) => s + e.btc, 0); }
+    function totalBtcValue() { return btcPrice ? totalBtc() * btcPrice : 0; }
+    function totalLoans() { return loans.filter(l => !l.is_returned).reduce((s, e) => s + e.amount, 0); }
+
+    // --- Render ---
+    function render() {
+      const tc = totalCash();
+      const tgv = totalGoldValue();
+      const tbv = totalBtcValue();
+      const tl = totalLoans();
+      const total = tc + tgv + tbv + tl;
+      const tg = totalGrams();
+      const tb = totalBtc();
+
+      const outstandingLoans = loans.filter(l => !l.is_returned);
+      const returnedLoans = loans.filter(l => l.is_returned);
+
+      document.getElementById('app').innerHTML = `
+        <!-- Vault Summary -->
+        <div class="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
+          <h2 class="mb-4 text-sm font-medium uppercase tracking-wider text-zinc-500">Vault Total</h2>
+          <p class="mb-6 text-4xl font-bold text-emerald-400">$${fmt(total)}</p>
+          <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div class="rounded-lg bg-zinc-800/50 p-3">
+              <p class="text-xs text-zinc-500">Cash</p>
+              <p class="text-lg font-semibold text-zinc-200">$${fmt(tc)}</p>
+            </div>
+            <div class="rounded-lg bg-zinc-800/50 p-3">
+              <p class="text-xs text-zinc-500">Gold (${tg.toFixed(1)}g)</p>
+              <p class="text-lg font-semibold text-amber-400">$${fmt(tgv)}</p>
+              ${goldPrice ? `<p class="text-xs text-zinc-600">$${goldPrice.toFixed(2)}/g</p>` : ''}
+            </div>
+            <div class="rounded-lg bg-zinc-800/50 p-3">
+              <p class="text-xs text-zinc-500">Bitcoin (${tb.toFixed(8)} BTC)</p>
+              <p class="text-lg font-semibold text-orange-400">$${fmt(tbv)}</p>
+              ${btcPrice ? `<p class="text-xs text-zinc-600">$${btcPrice.toLocaleString()}/BTC</p>` : ''}
+            </div>
+            <div class="rounded-lg bg-zinc-800/50 p-3">
+              <p class="text-xs text-zinc-500">Lent Out</p>
+              <p class="text-lg font-semibold text-blue-400">$${fmt(tl)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid gap-6 md:grid-cols-2">
+          <!-- Cash Section -->
+          <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+            <h3 class="mb-4 text-sm font-medium uppercase tracking-wider text-zinc-500">Cash</h3>
+            <form onsubmit="addCash(event)" class="mb-4 flex gap-2">
+              <input type="number" step="0.01" placeholder="Amount" id="cash-amount"
+                class="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none" />
+              <input type="text" placeholder="Note (optional)" id="cash-note"
+                class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none" />
+              <button type="submit"
+                class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">Add</button>
+            </form>
+            ${cash.length === 0 ? '<p class="text-sm text-zinc-600">No cash entries yet.</p>' :
+              `<ul class="space-y-2">${cash.map(e => `
+                <li class="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
+                  <div>
+                    <span class="font-medium text-zinc-200">$${fmt(e.amount)}</span>
+                    ${e.note ? `<span class="ml-2 text-sm text-zinc-500">${esc(e.note)}</span>` : ''}
+                  </div>
+                  <button onclick="removeCash('${e.id}')" class="text-xs text-zinc-600 hover:text-red-400">Remove</button>
+                </li>`).join('')}</ul>`}
+          </div>
+
+          <!-- Gold Section -->
+          <div class="rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+            <div class="mb-4 flex items-center justify-between">
+              <h3 class="text-sm font-medium uppercase tracking-wider text-zinc-500">Gold</h3>
+              ${goldPrice ? `
+                <div class="text-right">
+                  <span class="text-sm font-medium text-amber-400">$${goldPrice.toFixed(2)}/g</span>
+                  <p class="text-xs text-zinc-600">Updated ${goldPriceUpdatedAt}</p>
+                </div>` : `
+                <div class="flex items-center gap-2">
+                  <input type="number" step="0.01" placeholder="$/g manual" id="manual-price"
+                    class="w-24 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none"
+                    value="${manualGoldPrice || ''}" />
+                  <button onclick="setManualPrice()"
+                    class="rounded px-2 py-1 text-xs text-amber-400 border border-amber-400/30 hover:bg-amber-400/10">Set</button>
+                </div>`}
+            </div>
+            <form onsubmit="addGold(event)" class="mb-4 flex gap-2">
+              <input type="number" step="0.01" placeholder="Grams" id="gold-grams"
+                class="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-amber-500 focus:outline-none" />
+              <input type="text" placeholder="Note (optional)" id="gold-note"
+                class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-amber-500 focus:outline-none" />
+              <button type="submit"
+                class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700">Add</button>
+            </form>
+            ${gold.length === 0 ? '<p class="text-sm text-zinc-600">No gold entries yet.</p>' :
+              `<ul class="space-y-2">${gold.map(e => `
+                <li class="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
+                  <div>
+                    <span class="font-medium text-amber-400">${e.grams}g</span>
+                    ${goldPrice ? `<span class="ml-2 text-sm text-zinc-400">≈ $${fmt(e.grams * goldPrice)}</span>` : ''}
+                    ${e.note ? `<span class="ml-2 text-sm text-zinc-500">${esc(e.note)}</span>` : ''}
+                  </div>
+                  <button onclick="removeGold('${e.id}')" class="text-xs text-zinc-600 hover:text-red-400">Remove</button>
+                </li>`).join('')}</ul>`}
+          </div>
+        </div>
+
+        <!-- Bitcoin Section -->
+        <div class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+          <div class="mb-4 flex items-center justify-between">
+            <h3 class="text-sm font-medium uppercase tracking-wider text-zinc-500">Bitcoin</h3>
+            ${btcPrice ? `
+              <div class="text-right">
+                <span class="text-sm font-medium text-orange-400">$${btcPrice.toLocaleString()}/BTC</span>
+                <p class="text-xs text-zinc-600">Updated ${btcPriceUpdatedAt}</p>
+              </div>` : `
+              <div class="flex items-center gap-2">
+                <input type="number" step="0.01" placeholder="$/BTC manual" id="manual-btc-price"
+                  class="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none"
+                  value="${manualBtcPrice || ''}" />
+                <button onclick="setManualBtcPrice()"
+                  class="rounded px-2 py-1 text-xs text-orange-400 border border-orange-400/30 hover:bg-orange-400/10">Set</button>
+              </div>`}
+          </div>
+          <form onsubmit="addBtc(event)" class="mb-4 flex gap-2">
+            <input type="number" step="0.00000001" placeholder="BTC amount" id="btc-amount"
+              class="w-36 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-orange-500 focus:outline-none" />
+            <input type="text" placeholder="Note (optional)" id="btc-note"
+              class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-orange-500 focus:outline-none" />
+            <button type="submit"
+              class="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700">Add</button>
+          </form>
+          ${bitcoin.length === 0 ? '<p class="text-sm text-zinc-600">No bitcoin entries yet.</p>' :
+            `<ul class="space-y-2">${bitcoin.map(e => `
+              <li class="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
+                <div>
+                  <span class="font-medium text-orange-400">${e.btc} BTC</span>
+                  ${btcPrice ? `<span class="ml-2 text-sm text-zinc-400">≈ $${fmt(e.btc * btcPrice)}</span>` : ''}
+                  ${e.note ? `<span class="ml-2 text-sm text-zinc-500">${esc(e.note)}</span>` : ''}
+                </div>
+                <button onclick="removeBtc('${e.id}')" class="text-xs text-zinc-600 hover:text-red-400">Remove</button>
+              </li>`).join('')}</ul>`}
+        </div>
+
+        <!-- Loans Section -->
+        <div class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+          <h3 class="mb-4 text-sm font-medium uppercase tracking-wider text-zinc-500">Money Lent Out</h3>
+          <form onsubmit="addLoan(event)" class="mb-4 flex gap-2">
+            <input type="text" placeholder="Borrower name" id="loan-name"
+              class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
+            <input type="number" step="0.01" placeholder="Amount" id="loan-amount"
+              class="w-28 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-blue-500 focus:outline-none" />
+            <button type="submit"
+              class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Add</button>
+          </form>
+          ${outstandingLoans.length === 0 && returnedLoans.length === 0
+            ? '<p class="text-sm text-zinc-600">No loans recorded.</p>'
+            : `
+              ${outstandingLoans.length > 0 ? `<ul class="mb-3 space-y-2">${outstandingLoans.map(e => `
+                <li class="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
+                  <div class="flex items-center gap-3">
+                    <button onclick="toggleLoan('${e.id}')"
+                      class="h-4 w-4 rounded border border-zinc-600 hover:border-blue-400" title="Mark as returned"></button>
+                    <div>
+                      <span class="font-medium text-zinc-200">${esc(e.borrower_name)}</span>
+                      <span class="ml-2 text-blue-400">$${fmt(e.amount)}</span>
+                    </div>
+                  </div>
+                  <button onclick="removeLoan('${e.id}')" class="text-xs text-zinc-600 hover:text-red-400">Remove</button>
+                </li>`).join('')}</ul>` : ''}
+              ${returnedLoans.length > 0 ? `
+                <p class="mb-2 text-xs text-zinc-600">Returned</p>
+                <ul class="space-y-2 opacity-50">${returnedLoans.map(e => `
+                  <li class="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
+                    <div class="flex items-center gap-3">
+                      <button onclick="toggleLoan('${e.id}')"
+                        class="flex h-4 w-4 items-center justify-center rounded border border-blue-500 bg-blue-500/20 text-xs text-blue-400"
+                        title="Mark as outstanding">&#10003;</button>
+                      <div>
+                        <span class="font-medium text-zinc-400 line-through">${esc(e.borrower_name)}</span>
+                        <span class="ml-2 text-zinc-500 line-through">$${fmt(e.amount)}</span>
+                      </div>
+                    </div>
+                    <button onclick="removeLoan('${e.id}')" class="text-xs text-zinc-600 hover:text-red-400">Remove</button>
+                  </li>`).join('')}</ul>` : ''}
+            `}
+        </div>
+      `;
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // --- Actions ---
+    function addCash(e) {
+      e.preventDefault();
+      const amount = parseFloat(document.getElementById('cash-amount').value);
+      const note = document.getElementById('cash-note').value.trim();
+      if (!amount || isNaN(amount)) return;
+      cash.unshift({ id: genId(), amount, note: note || null, created_at: new Date().toISOString() });
+      save('cash', cash);
+      render();
+    }
+
+    function removeCash(id) {
+      cash = cash.filter(e => e.id !== id);
+      save('cash', cash);
+      render();
+    }
+
+    function addGold(e) {
+      e.preventDefault();
+      const grams = parseFloat(document.getElementById('gold-grams').value);
+      const note = document.getElementById('gold-note').value.trim();
+      if (!grams || isNaN(grams) || grams <= 0) return;
+      gold.unshift({ id: genId(), grams, note: note || null, created_at: new Date().toISOString() });
+      save('gold', gold);
+      render();
+    }
+
+    function removeGold(id) {
+      gold = gold.filter(e => e.id !== id);
+      save('gold', gold);
+      render();
+    }
+
+    function addBtc(e) {
+      e.preventDefault();
+      const btc = parseFloat(document.getElementById('btc-amount').value);
+      const note = document.getElementById('btc-note').value.trim();
+      if (!btc || isNaN(btc) || btc <= 0) return;
+      bitcoin.unshift({ id: genId(), btc, note: note || null, created_at: new Date().toISOString() });
+      save('bitcoin', bitcoin);
+      render();
+    }
+
+    function removeBtc(id) {
+      bitcoin = bitcoin.filter(e => e.id !== id);
+      save('bitcoin', bitcoin);
+      render();
+    }
+
+    function setManualBtcPrice() {
+      const val = document.getElementById('manual-btc-price').value;
+      if (val && !isNaN(parseFloat(val))) {
+        manualBtcPrice = val;
+        btcPrice = parseFloat(val);
+        btcPriceUpdatedAt = 'manual';
+        localStorage.setItem('darayi_manual_btc_price', val);
+        render();
+      }
+    }
+
+    function setManualPrice() {
+      const val = document.getElementById('manual-price').value;
+      if (val && !isNaN(parseFloat(val))) {
+        manualGoldPrice = val;
+        goldPrice = parseFloat(val);
+        goldPriceUpdatedAt = 'manual';
+        localStorage.setItem('darayi_manual_gold_price', val);
+        render();
+      }
+    }
+
+    function addLoan(e) {
+      e.preventDefault();
+      const name = document.getElementById('loan-name').value.trim();
+      const amount = parseFloat(document.getElementById('loan-amount').value);
+      if (!name || !amount || isNaN(amount)) return;
+      loans.unshift({ id: genId(), borrower_name: name, amount, is_returned: false, created_at: new Date().toISOString() });
+      save('loans', loans);
+      render();
+    }
+
+    function toggleLoan(id) {
+      const loan = loans.find(e => e.id === id);
+      if (loan) loan.is_returned = !loan.is_returned;
+      save('loans', loans);
+      render();
+    }
+
+    function removeLoan(id) {
+      loans = loans.filter(e => e.id !== id);
+      save('loans', loans);
+      render();
+    }
+
+    // --- Init ---
+    render();
+    fetchGoldPrice();
+    fetchBtcPrice();
+  </script>
+</body>
+</html>

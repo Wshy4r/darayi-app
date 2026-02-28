@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Next.js build
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# Data - double protection: by folder AND by file type
+data/
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# OS files
+.DS_Store
