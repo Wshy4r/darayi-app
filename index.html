@@ -42,6 +42,7 @@
     let btcPrice = null;
     let btcPriceUpdatedAt = null;
     let manualBtcPrice = localStorage.getItem('darayi_manual_btc_price');
+    let backupOpen = false;
 
     // --- Gold Price (CoinGecko Tether Gold tracks gold price, CORS-friendly) ---
     async function fetchGoldPrice() {
@@ -278,6 +279,46 @@
                   </li>`).join('')}</ul>` : ''}
             `}
         </div>
+
+        <!-- Backup & Sync -->
+        <div class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
+          <button onclick="backupOpen = !backupOpen; render();" class="flex w-full items-center justify-between text-left">
+            <h3 class="text-sm font-medium uppercase tracking-wider text-zinc-500">Backup & Sync</h3>
+            <span class="text-zinc-600 text-xs">${backupOpen ? '▲' : '▼'}</span>
+          </button>
+          ${backupOpen ? `
+            <div class="mt-4 space-y-4">
+              <div>
+                <p class="mb-2 text-xs text-zinc-500">Export — encrypt your data with a passcode</p>
+                <div class="flex gap-2">
+                  <input type="password" placeholder="Passcode" id="backup-passcode"
+                    class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500 focus:outline-none" />
+                  <button onclick="exportBackup()"
+                    class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Export</button>
+                </div>
+                <textarea id="backup-output" readonly rows="3"
+                  class="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+                  placeholder="Encrypted backup will appear here..."></textarea>
+                <button onclick="navigator.clipboard.writeText(document.getElementById('backup-output').value)"
+                  class="mt-1 text-xs text-violet-400 hover:text-violet-300">Copy to clipboard</button>
+              </div>
+              <hr class="border-zinc-800" />
+              <div>
+                <p class="mb-2 text-xs text-zinc-500">Import — paste encrypted backup and enter passcode</p>
+                <textarea id="import-data" rows="3"
+                  class="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+                  placeholder="Paste encrypted backup here..."></textarea>
+                <div class="mt-2 flex gap-2">
+                  <input type="password" placeholder="Passcode" id="import-passcode"
+                    class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500 focus:outline-none" />
+                  <button onclick="importBackup()"
+                    class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Import</button>
+                </div>
+              </div>
+              <p id="backup-status" class="text-xs text-zinc-600"></p>
+            </div>
+          ` : ''}
+        </div>
       `;
     }
 
@@ -285,6 +326,42 @@
       const d = document.createElement('div');
       d.textContent = s;
       return d.innerHTML;
+    }
+
+    // --- Crypto (Web Crypto API: PBKDF2 + AES-GCM) ---
+    async function deriveKey(passcode, salt) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(passcode), 'PBKDF2', false, ['deriveKey']);
+      return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+      );
+    }
+
+    async function encryptData(jsonString, passcode) {
+      const enc = new TextEncoder();
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await deriveKey(passcode, salt);
+      const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(jsonString));
+      const combined = new Uint8Array(salt.length + iv.length + new Uint8Array(encrypted).length);
+      combined.set(salt, 0);
+      combined.set(iv, salt.length);
+      combined.set(new Uint8Array(encrypted), salt.length + iv.length);
+      return btoa(String.fromCharCode(...combined));
+    }
+
+    async function decryptData(base64String, passcode) {
+      const combined = Uint8Array.from(atob(base64String), c => c.charCodeAt(0));
+      const salt = combined.slice(0, 16);
+      const iv = combined.slice(16, 28);
+      const data = combined.slice(28);
+      const key = await deriveKey(passcode, salt);
+      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+      return new TextDecoder().decode(decrypted);
     }
 
     // --- Actions ---
@@ -379,6 +456,42 @@
       loans = loans.filter(e => e.id !== id);
       save('loans', loans);
       render();
+    }
+
+    // --- Backup ---
+    async function exportBackup() {
+      const passcode = document.getElementById('backup-passcode').value;
+      if (!passcode) return;
+      const data = JSON.stringify({ cash, gold, bitcoin, loans });
+      try {
+        const encrypted = await encryptData(data, passcode);
+        document.getElementById('backup-output').value = encrypted;
+        document.getElementById('backup-status').textContent = 'Backup exported! Copy the text above.';
+        document.getElementById('backup-status').className = 'text-xs text-emerald-400';
+      } catch (err) {
+        document.getElementById('backup-status').textContent = 'Export failed.';
+        document.getElementById('backup-status').className = 'text-xs text-red-400';
+      }
+    }
+
+    async function importBackup() {
+      const passcode = document.getElementById('import-passcode').value;
+      const blob = document.getElementById('import-data').value.trim();
+      if (!passcode || !blob) return;
+      try {
+        const jsonString = await decryptData(blob, passcode);
+        const data = JSON.parse(jsonString);
+        if (data.cash) { cash = data.cash; save('cash', cash); }
+        if (data.gold) { gold = data.gold; save('gold', gold); }
+        if (data.bitcoin) { bitcoin = data.bitcoin; save('bitcoin', bitcoin); }
+        if (data.loans) { loans = data.loans; save('loans', loans); }
+        document.getElementById('backup-status').textContent = 'Data imported successfully!';
+        document.getElementById('backup-status').className = 'text-xs text-emerald-400';
+        render();
+      } catch {
+        document.getElementById('backup-status').textContent = 'Import failed — wrong passcode or invalid data.';
+        document.getElementById('backup-status').className = 'text-xs text-red-400';
+      }
     }
 
     // --- Init ---
