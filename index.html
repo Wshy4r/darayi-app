@@ -70,6 +70,7 @@
     };
     let salaryCurrency = localStorage.getItem('darayi_salary_currency') || 'IQD';
     let customUsdIqd = localStorage.getItem('darayi_custom_usd_iqd') ? parseFloat(localStorage.getItem('darayi_custom_usd_iqd')) : null;
+    let usdIqdRate = customUsdIqd || null; // live rate, updated on init
 
     // --- Gold Price (CoinGecko Tether Gold tracks gold price, CORS-friendly) ---
     async function fetchGoldPrice() {
@@ -104,46 +105,50 @@
       return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
+    // Amounts are ALWAYS stored in IQD. fmtS converts for display only.
     function fmtS(n) {
+      let displayAmount = n;
+      const rate = customUsdIqd || usdIqdRate;
+      if (salaryCurrency === 'USD' && rate) {
+        displayAmount = n / rate;
+      }
       const c = currencies[salaryCurrency] || currencies.IQD;
-      const val = n.toLocaleString('en-US', { minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals });
+      const val = displayAmount.toLocaleString('en-US', { minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals });
       return c.prefix ? c.symbol + val : val + ' ' + c.symbol;
     }
-    function getUsdIqdRate() { return customUsdIqd; }
 
-    async function setSalaryCurrency(code) {
-      const oldCode = salaryCurrency;
-      if (oldCode === code) return;
-      try {
-        let rate;
-        // Use custom rate if set
-        if (customUsdIqd) {
-          if (oldCode === 'USD' && code === 'IQD') rate = customUsdIqd;
-          else if (oldCode === 'IQD' && code === 'USD') rate = 1 / customUsdIqd;
-        }
-        // Otherwise fetch from API
-        if (!rate) {
-          const res = await fetch(`https://open.er-api.com/v6/latest/${oldCode}`);
-          if (!res.ok) throw new Error();
-          const data = await res.json();
-          rate = data.rates?.[code];
-          if (!rate) throw new Error();
-        }
-        salary.forEach(e => e.amount = e.amount * rate);
-        expenses.forEach(e => e.amount = e.amount * rate);
-        save('salary', salary);
-        save('expenses', expenses);
-      } catch {}
+    // Convert user input to IQD for storage
+    function toIqd(amount) {
+      if (salaryCurrency === 'USD') {
+        const rate = customUsdIqd || usdIqdRate;
+        return rate ? amount * rate : amount;
+      }
+      return amount;
+    }
+
+    function setSalaryCurrency(code) {
       salaryCurrency = code;
       localStorage.setItem('darayi_salary_currency', code);
       render();
-      autoSync();
+    }
+
+    async function fetchUsdIqdRate() {
+      if (customUsdIqd) { usdIqdRate = customUsdIqd; return; }
+      try {
+        const res = await fetch('https://open.er-api.com/v6/latest/USD');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const rate = data.rates?.IQD;
+        if (rate) usdIqdRate = rate;
+      } catch {}
+      render();
     }
 
     function setCustomRate() {
       const val = parseFloat(document.getElementById('custom-rate-input').value);
       if (!val || isNaN(val) || val <= 0) return;
       customUsdIqd = val;
+      usdIqdRate = val;
       localStorage.setItem('darayi_custom_usd_iqd', val);
       render();
     }
@@ -151,7 +156,7 @@
     function clearCustomRate() {
       customUsdIqd = null;
       localStorage.removeItem('darayi_custom_usd_iqd');
-      render();
+      fetchUsdIqdRate();
     }
 
     function totalCash() { return cash.reduce((s, e) => s + e.amount, 0); }
@@ -636,9 +641,10 @@
     // --- Salary Actions ---
     function addSalary(e) {
       e.preventDefault();
-      const amount = parseFloat(document.getElementById('salary-amount').value);
+      const raw = parseFloat(document.getElementById('salary-amount').value);
       const note = document.getElementById('salary-note').value.trim();
-      if (!amount || isNaN(amount)) return;
+      if (!raw || isNaN(raw)) return;
+      const amount = toIqd(raw);
       salary.unshift({ id: genId(), amount, note: note || null, created_at: new Date().toISOString() });
       save('salary', salary);
       render(); autoSync();
@@ -652,10 +658,11 @@
 
     function addExpense(e) {
       e.preventDefault();
-      const amount = parseFloat(document.getElementById('expense-amount').value);
+      const raw = parseFloat(document.getElementById('expense-amount').value);
       const category = document.getElementById('expense-category').value.trim();
       const note = document.getElementById('expense-note').value.trim();
-      if (!amount || isNaN(amount)) return;
+      if (!raw || isNaN(raw)) return;
+      const amount = toIqd(raw);
       expenses.unshift({ id: genId(), amount, category: category || null, note: note || null, created_at: new Date().toISOString() });
       save('expenses', expenses);
       render(); autoSync();
@@ -719,6 +726,7 @@
     render();
     fetchGoldPrice();
     fetchBtcPrice();
+    fetchUsdIqdRate();
   </script>
 </body>
 </html>
