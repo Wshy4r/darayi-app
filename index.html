@@ -42,7 +42,10 @@
     let btcPrice = null;
     let btcPriceUpdatedAt = null;
     let manualBtcPrice = localStorage.getItem('darayi_manual_btc_price');
-    let backupOpen = false;
+    let syncPasscode = localStorage.getItem('darayi_sync_passcode') || '';
+    let syncCode = localStorage.getItem('darayi_sync_code') || '';
+    let syncOpen = false;
+    let syncStatus = '';
 
     // --- Gold Price (CoinGecko Tether Gold tracks gold price, CORS-friendly) ---
     async function fetchGoldPrice() {
@@ -282,32 +285,40 @@
 
         <!-- Backup & Sync -->
         <div class="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-5">
-          <button onclick="backupOpen = !backupOpen; render();" class="flex w-full items-center justify-between text-left">
+          <button onclick="syncOpen = !syncOpen; render();" class="flex w-full items-center justify-between text-left">
             <h3 class="text-sm font-medium uppercase tracking-wider text-zinc-500">Backup & Sync</h3>
-            <span class="text-zinc-600 text-xs">${backupOpen ? '▲' : '▼'}</span>
+            <span class="text-zinc-600 text-xs">${syncOpen ? '▲' : '▼'}</span>
           </button>
-          ${backupOpen ? `
+          ${syncOpen ? `
             <div class="mt-4 space-y-4">
-              <div>
-                <p class="mb-2 text-xs text-zinc-500">Export — encrypt your data with a passcode</p>
-                <div class="flex gap-2">
-                  <input type="password" placeholder="Passcode" id="backup-passcode"
-                    class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500 focus:outline-none" />
-                  <button onclick="exportBackup()"
-                    class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Export</button>
+              ${!syncPasscode ? `
+                <div>
+                  <p class="mb-2 text-xs text-zinc-500">Set a sync passcode to enable encrypted backups</p>
+                  <div class="flex gap-2">
+                    <input type="password" placeholder="Choose a passcode" id="set-passcode"
+                      class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500 focus:outline-none" />
+                    <button onclick="setSyncPasscode()"
+                      class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Save</button>
+                  </div>
                 </div>
-                <textarea id="backup-output" readonly rows="3"
-                  class="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
-                  placeholder="Encrypted backup will appear here..."></textarea>
-                <button onclick="navigator.clipboard.writeText(document.getElementById('backup-output').value)"
-                  class="mt-1 text-xs text-violet-400 hover:text-violet-300">Copy to clipboard</button>
-              </div>
+              ` : `
+                <div>
+                  <div class="mb-2 flex items-center justify-between">
+                    <p class="text-xs text-zinc-500">Your sync code — auto-updated on every change</p>
+                    <button onclick="clearSyncPasscode()" class="text-xs text-zinc-600 hover:text-red-400">Change passcode</button>
+                  </div>
+                  <textarea id="sync-output" readonly rows="3"
+                    class="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none">${esc(syncCode)}</textarea>
+                  <button onclick="navigator.clipboard.writeText(document.getElementById('sync-output').value)"
+                    class="mt-1 text-xs text-violet-400 hover:text-violet-300">Copy to clipboard</button>
+                </div>
+              `}
               <hr class="border-zinc-800" />
               <div>
-                <p class="mb-2 text-xs text-zinc-500">Import — paste encrypted backup and enter passcode</p>
+                <p class="mb-2 text-xs text-zinc-500">Import — paste a sync code from another device</p>
                 <textarea id="import-data" rows="3"
                   class="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
-                  placeholder="Paste encrypted backup here..."></textarea>
+                  placeholder="Paste sync code here..."></textarea>
                 <div class="mt-2 flex gap-2">
                   <input type="password" placeholder="Passcode" id="import-passcode"
                     class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:border-violet-500 focus:outline-none" />
@@ -315,7 +326,7 @@
                     class="rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700">Import</button>
                 </div>
               </div>
-              <p id="backup-status" class="text-xs text-zinc-600"></p>
+              ${syncStatus ? `<p class="text-xs ${syncStatus.startsWith('Import failed') ? 'text-red-400' : 'text-emerald-400'}">${esc(syncStatus)}</p>` : ''}
             </div>
           ` : ''}
         </div>
@@ -372,13 +383,13 @@
       if (!amount || isNaN(amount)) return;
       cash.unshift({ id: genId(), amount, note: note || null, created_at: new Date().toISOString() });
       save('cash', cash);
-      render();
+      render(); autoSync();
     }
 
     function removeCash(id) {
       cash = cash.filter(e => e.id !== id);
       save('cash', cash);
-      render();
+      render(); autoSync();
     }
 
     function addGold(e) {
@@ -388,13 +399,13 @@
       if (!grams || isNaN(grams) || grams <= 0) return;
       gold.unshift({ id: genId(), grams, note: note || null, created_at: new Date().toISOString() });
       save('gold', gold);
-      render();
+      render(); autoSync();
     }
 
     function removeGold(id) {
       gold = gold.filter(e => e.id !== id);
       save('gold', gold);
-      render();
+      render(); autoSync();
     }
 
     function addBtc(e) {
@@ -404,13 +415,13 @@
       if (!btc || isNaN(btc) || btc <= 0) return;
       bitcoin.unshift({ id: genId(), btc, note: note || null, created_at: new Date().toISOString() });
       save('bitcoin', bitcoin);
-      render();
+      render(); autoSync();
     }
 
     function removeBtc(id) {
       bitcoin = bitcoin.filter(e => e.id !== id);
       save('bitcoin', bitcoin);
-      render();
+      render(); autoSync();
     }
 
     function setManualBtcPrice() {
@@ -442,36 +453,46 @@
       if (!name || !amount || isNaN(amount)) return;
       loans.unshift({ id: genId(), borrower_name: name, amount, is_returned: false, created_at: new Date().toISOString() });
       save('loans', loans);
-      render();
+      render(); autoSync();
     }
 
     function toggleLoan(id) {
       const loan = loans.find(e => e.id === id);
       if (loan) loan.is_returned = !loan.is_returned;
       save('loans', loans);
-      render();
+      render(); autoSync();
     }
 
     function removeLoan(id) {
       loans = loans.filter(e => e.id !== id);
       save('loans', loans);
-      render();
+      render(); autoSync();
     }
 
-    // --- Backup ---
-    async function exportBackup() {
-      const passcode = document.getElementById('backup-passcode').value;
-      if (!passcode) return;
-      const data = JSON.stringify({ cash, gold, bitcoin, loans });
+    // --- Sync ---
+    async function autoSync() {
+      if (!syncPasscode) return;
       try {
-        const encrypted = await encryptData(data, passcode);
-        document.getElementById('backup-output').value = encrypted;
-        document.getElementById('backup-status').textContent = 'Backup exported! Copy the text above.';
-        document.getElementById('backup-status').className = 'text-xs text-emerald-400';
-      } catch (err) {
-        document.getElementById('backup-status').textContent = 'Export failed.';
-        document.getElementById('backup-status').className = 'text-xs text-red-400';
-      }
+        const data = JSON.stringify({ cash, gold, bitcoin, loans });
+        syncCode = await encryptData(data, syncPasscode);
+        localStorage.setItem('darayi_sync_code', syncCode);
+      } catch {}
+    }
+
+    function setSyncPasscode() {
+      const val = document.getElementById('set-passcode').value.trim();
+      if (!val) return;
+      syncPasscode = val;
+      localStorage.setItem('darayi_sync_passcode', val);
+      autoSync().then(() => render());
+    }
+
+    function clearSyncPasscode() {
+      syncPasscode = '';
+      syncCode = '';
+      localStorage.removeItem('darayi_sync_passcode');
+      localStorage.removeItem('darayi_sync_code');
+      render();
     }
 
     async function importBackup() {
@@ -485,12 +506,12 @@
         if (data.gold) { gold = data.gold; save('gold', gold); }
         if (data.bitcoin) { bitcoin = data.bitcoin; save('bitcoin', bitcoin); }
         if (data.loans) { loans = data.loans; save('loans', loans); }
-        document.getElementById('backup-status').textContent = 'Data imported successfully!';
-        document.getElementById('backup-status').className = 'text-xs text-emerald-400';
+        syncStatus = 'Data imported successfully!';
+        await autoSync();
         render();
       } catch {
-        document.getElementById('backup-status').textContent = 'Import failed — wrong passcode or invalid data.';
-        document.getElementById('backup-status').className = 'text-xs text-red-400';
+        syncStatus = 'Import failed — wrong passcode or invalid data.';
+        render();
       }
     }
 
