@@ -50,6 +50,13 @@
     let syncCode = localStorage.getItem('darayi_sync_code') || '';
     let syncOpen = false;
     let syncStatus = '';
+    const currencies = {
+      USD: { symbol: '$', prefix: true, decimals: 2 },
+      IQD: { symbol: 'د.ع', prefix: false, decimals: 0 },
+      EUR: { symbol: '€', prefix: true, decimals: 2 },
+      GBP: { symbol: '£', prefix: true, decimals: 2 },
+    };
+    let salaryCurrency = localStorage.getItem('darayi_salary_currency') || 'IQD';
 
     // --- Gold Price (CoinGecko Tether Gold tracks gold price, CORS-friendly) ---
     async function fetchGoldPrice() {
@@ -96,6 +103,17 @@
     // --- Helpers ---
     function fmt(n) {
       return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function fmtS(n) {
+      const c = currencies[salaryCurrency] || currencies.IQD;
+      const val = n.toLocaleString('en-US', { minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals });
+      return c.prefix ? c.symbol + val : val + ' ' + c.symbol;
+    }
+    function setSalaryCurrency(code) {
+      salaryCurrency = code;
+      localStorage.setItem('darayi_salary_currency', code);
+      render();
     }
 
     function totalCash() { return cash.reduce((s, e) => s + e.amount, 0); }
@@ -315,20 +333,26 @@
       document.getElementById('app').innerHTML = `
         <!-- Salary Summary -->
         <div class="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
-          <h2 class="mb-4 text-sm font-medium uppercase tracking-wider text-zinc-500">Salary Overview</h2>
-          <p class="mb-6 text-4xl font-bold ${remaining >= 0 ? 'text-rose-400' : 'text-red-500'}">$${fmt(remaining)}</p>
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="text-sm font-medium uppercase tracking-wider text-zinc-500">Salary Overview</h2>
+            <select onchange="setSalaryCurrency(this.value)"
+              class="rounded-lg border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300 focus:outline-none">
+              ${Object.keys(currencies).map(c => `<option value="${c}" ${c === salaryCurrency ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>
+          </div>
+          <p class="mb-6 text-4xl font-bold ${remaining >= 0 ? 'text-rose-400' : 'text-red-500'}">${fmtS(remaining)}</p>
           <div class="grid grid-cols-3 gap-4">
             <div class="rounded-lg bg-zinc-800/50 p-3">
               <p class="text-xs text-zinc-500">Income</p>
-              <p class="text-lg font-semibold text-emerald-400">$${fmt(ti)}</p>
+              <p class="text-lg font-semibold text-emerald-400">${fmtS(ti)}</p>
             </div>
             <div class="rounded-lg bg-zinc-800/50 p-3">
               <p class="text-xs text-zinc-500">Spent</p>
-              <p class="text-lg font-semibold text-rose-400">$${fmt(te)}</p>
+              <p class="text-lg font-semibold text-rose-400">${fmtS(te)}</p>
             </div>
             <div class="rounded-lg bg-zinc-800/50 p-3">
               <p class="text-xs text-zinc-500">Remaining</p>
-              <p class="text-lg font-semibold ${remaining >= 0 ? 'text-zinc-200' : 'text-red-500'}">$${fmt(remaining)}</p>
+              <p class="text-lg font-semibold ${remaining >= 0 ? 'text-zinc-200' : 'text-red-500'}">${fmtS(remaining)}</p>
             </div>
           </div>
         </div>
@@ -349,7 +373,7 @@
               `<ul class="space-y-2">${salary.map(e => `
                 <li class="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
                   <div>
-                    <span class="font-medium text-emerald-400">$${fmt(e.amount)}</span>
+                    <span class="font-medium text-emerald-400">${fmtS(e.amount)}</span>
                     ${e.note ? `<span class="ml-2 text-sm text-zinc-500">${esc(e.note)}</span>` : ''}
                   </div>
                   <button onclick="removeSalary('${e.id}')" class="text-xs text-zinc-600 hover:text-red-400">Remove</button>
@@ -373,7 +397,7 @@
               `<ul class="space-y-2">${expenses.map(e => `
                 <li class="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
                   <div>
-                    <span class="font-medium text-rose-400">$${fmt(e.amount)}</span>
+                    <span class="font-medium text-rose-400">${fmtS(e.amount)}</span>
                     ${e.category ? `<span class="ml-2 rounded bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-300">${esc(e.category)}</span>` : ''}
                     ${e.note ? `<span class="ml-2 text-sm text-zinc-500">${esc(e.note)}</span>` : ''}
                   </div>
