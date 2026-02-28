@@ -497,7 +497,7 @@
 
     async function importBackup() {
       const passcode = document.getElementById('import-passcode').value;
-      const blob = document.getElementById('import-data').value.trim();
+      const blob = document.getElementById('import-data').value.replace(/\s/g, '');
       if (!passcode || !blob) return;
       try {
         const jsonString = await decryptData(blob, passcode);
