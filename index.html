@@ -67,10 +67,9 @@
     const currencies = {
       USD: { symbol: '$', prefix: true, decimals: 2 },
       IQD: { symbol: 'IQD', prefix: false, decimals: 0 },
-      EUR: { symbol: '€', prefix: true, decimals: 2 },
-      GBP: { symbol: '£', prefix: true, decimals: 2 },
     };
     let salaryCurrency = localStorage.getItem('darayi_salary_currency') || 'IQD';
+    let customUsdIqd = localStorage.getItem('darayi_custom_usd_iqd') ? parseFloat(localStorage.getItem('darayi_custom_usd_iqd')) : null;
 
     // --- Gold Price (CoinGecko Tether Gold tracks gold price, CORS-friendly) ---
     async function fetchGoldPrice() {
@@ -110,26 +109,49 @@
       const val = n.toLocaleString('en-US', { minimumFractionDigits: c.decimals, maximumFractionDigits: c.decimals });
       return c.prefix ? c.symbol + val : val + ' ' + c.symbol;
     }
+    function getUsdIqdRate() { return customUsdIqd; }
+
     async function setSalaryCurrency(code) {
       const oldCode = salaryCurrency;
       if (oldCode === code) return;
       try {
-        const res = await fetch(`https://open.er-api.com/v6/latest/${oldCode}`);
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        const rate = data.rates?.[code];
-        if (!rate) throw new Error();
+        let rate;
+        // Use custom rate if set
+        if (customUsdIqd) {
+          if (oldCode === 'USD' && code === 'IQD') rate = customUsdIqd;
+          else if (oldCode === 'IQD' && code === 'USD') rate = 1 / customUsdIqd;
+        }
+        // Otherwise fetch from API
+        if (!rate) {
+          const res = await fetch(`https://open.er-api.com/v6/latest/${oldCode}`);
+          if (!res.ok) throw new Error();
+          const data = await res.json();
+          rate = data.rates?.[code];
+          if (!rate) throw new Error();
+        }
         salary.forEach(e => e.amount = e.amount * rate);
         expenses.forEach(e => e.amount = e.amount * rate);
         save('salary', salary);
         save('expenses', expenses);
-      } catch {
-        // If API fails, just switch symbol without converting
-      }
+      } catch {}
       salaryCurrency = code;
       localStorage.setItem('darayi_salary_currency', code);
       render();
       autoSync();
+    }
+
+    function setCustomRate() {
+      const val = parseFloat(document.getElementById('custom-rate-input').value);
+      if (!val || isNaN(val) || val <= 0) return;
+      customUsdIqd = val;
+      localStorage.setItem('darayi_custom_usd_iqd', val);
+      render();
+    }
+
+    function clearCustomRate() {
+      customUsdIqd = null;
+      localStorage.removeItem('darayi_custom_usd_iqd');
+      render();
     }
 
     function totalCash() { return cash.reduce((s, e) => s + e.amount, 0); }
@@ -364,6 +386,15 @@
               <p class="text-xs text-zinc-500">Remaining</p>
               <p class="text-lg font-semibold ${remaining >= 0 ? 'text-zinc-200' : 'text-red-500'}">${fmtS(remaining)}</p>
             </div>
+          </div>
+          <div class="mt-4 flex items-center gap-2 text-xs">
+            <span class="text-zinc-600">1 USD =</span>
+            <input type="number" step="1" placeholder="${customUsdIqd || 'API rate'}" id="custom-rate-input"
+              value="${customUsdIqd || ''}"
+              class="w-24 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300 placeholder-zinc-600 focus:border-rose-500 focus:outline-none" />
+            <span class="text-zinc-600">IQD</span>
+            <button onclick="setCustomRate()" class="rounded px-2 py-1 text-rose-400 border border-rose-400/30 hover:bg-rose-400/10">Set</button>
+            ${customUsdIqd ? `<button onclick="clearCustomRate()" class="text-zinc-600 hover:text-red-400">Reset to API</button>` : `<span class="text-zinc-700">Using API rate</span>`}
           </div>
         </div>
 
