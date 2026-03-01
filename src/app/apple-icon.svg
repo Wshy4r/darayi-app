@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="36" fill="url(#bg)"/>
+  <!-- Lock body -->
+  <rect x="60" y="95" width="60" height="48" rx="8" fill="rgba(255,255,255,0.9)"/>
+  <!-- Lock shackle -->
+  <path d="M72 95 L72 75 C72 61 80 54 90 54 C100 54 108 61 108 75 L108 95" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="10" stroke-linecap="round"/>
+  <!-- Keyhole -->
+  <circle cx="90" cy="114" r="7" fill="#1d4ed8"/>
+  <rect x="87" y="117" width="6" height="12" rx="3" fill="#1d4ed8"/>
+</svg>
