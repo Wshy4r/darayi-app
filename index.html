@@ -520,6 +520,18 @@
             </div>
           </div>
           ${syncStatus ? `<p class="text-xs ${syncStatus.startsWith('Import failed') ? 'text-red-400' : 'text-emerald-400'}">${esc(syncStatus)}</p>` : ''}
+          <hr class="border-zinc-800" />
+          <div>
+            <p class="mb-2 text-xs text-zinc-500">Local backup — save a file to your device</p>
+            <div class="flex gap-2">
+              <button onclick="downloadBackup()"
+                class="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700">Download backup</button>
+              <label class="flex-1 cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700 text-center">
+                Restore from file
+                <input type="file" accept=".json" onchange="restoreBackup(event)" class="hidden" />
+              </label>
+            </div>
+          </div>
         </div>
       `;
     }
@@ -720,6 +732,44 @@
         syncStatus = 'Import failed — wrong passcode or invalid data.';
         render();
       }
+    }
+
+    // --- Local Backup ---
+    function downloadBackup() {
+      const data = JSON.stringify({ cash, gold, bitcoin, loans, salary, expenses, salaryCurrency, customUsdIqd }, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'darayi-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function restoreBackup(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function () {
+        try {
+          const data = JSON.parse(reader.result);
+          if (data.cash) { cash = data.cash; save('cash', cash); }
+          if (data.gold) { gold = data.gold; save('gold', gold); }
+          if (data.bitcoin) { bitcoin = data.bitcoin; save('bitcoin', bitcoin); }
+          if (data.loans) { loans = data.loans; save('loans', loans); }
+          if (data.salary) { salary = data.salary; save('salary', salary); }
+          if (data.expenses) { expenses = data.expenses; save('expenses', expenses); }
+          if (data.salaryCurrency) { salaryCurrency = data.salaryCurrency; localStorage.setItem('darayi_salary_currency', data.salaryCurrency); }
+          if (data.customUsdIqd) { customUsdIqd = data.customUsdIqd; usdIqdRate = data.customUsdIqd; localStorage.setItem('darayi_custom_usd_iqd', data.customUsdIqd); }
+          syncStatus = 'Restored from local backup!';
+          autoSync();
+          render();
+        } catch {
+          syncStatus = 'Restore failed — invalid file.';
+          render();
+        }
+      };
+      reader.readAsText(file);
     }
 
     // --- Init ---
