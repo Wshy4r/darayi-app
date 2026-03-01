@@ -502,7 +502,7 @@
               </div>
               <textarea id="sync-output" readonly rows="3"
                 class="w-full rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-300 focus:outline-none">${esc(syncCode)}</textarea>
-              <button onclick="navigator.clipboard.writeText(document.getElementById('sync-output').value)"
+              <button onclick="navigator.clipboard.writeText(document.getElementById('sync-output').value).then(() => { this.textContent = 'Copied!'; setTimeout(() => { this.textContent = 'Copy to clipboard'; }, 2000); })"
                 class="mt-1 text-xs text-violet-400 hover:text-violet-300">Copy to clipboard</button>
             </div>
           `}
